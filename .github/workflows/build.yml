@@ -12,8 +12,14 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        submodules: 'recursive'
-        fetch-depth: '0'
+        submodules: recursive
+        # УБИРАЕМ fetch-depth или делаем fetch-depth: 0 для полного клона
+        fetch-depth: 0  # ← вот это исправление!
+
+    - name: Fix submodules (if needed)
+      run: |
+        git submodule foreach --recursive git fetch origin
+        git submodule update --init --recursive --force
 
     - name: Set active Xcode path
       run: |
@@ -37,44 +43,32 @@ jobs:
       run: |
         set -x
         SOURCE_DIR=/Users/Shared/telegram-ios
-        BAZEL_USER_ROOT="/private/var/tmp/_bazel_containerhost"
-        
         cd $SOURCE_DIR
         
-        # Build number для стабильности
-        BUILD_NUMBER_OFFSET=0
-        COMMIT_COUNT=$(git rev-list --count HEAD)
-        BUILD_NUMBER=$((COMMIT_COUNT + BUILD_NUMBER_OFFSET))
-        export BUILD_NUMBER
-        
-        # Simulator-only build без подписи
+        # Simulator build
         python3 build-system/Make/Make.py \
-          --bazelUserRoot="$BAZEL_USER_ROOT" \
           --cacheDir="$HOME/telegram-bazel-cache" \
-          build \
+          generateProject \
           --configurationPath="build-system/template_minimal_development_configuration.json" \
           --disableProvisioningProfiles \
-          --configuration=debug \
-          --targetPlatform=ios_simulator \
-          --buildNumber="$BUILD_NUMBER"
+          --overrideXcodeVersion
 
-    - name: Collect Simulator Artifacts
+        # Build simulator app
+        xcodebuild \
+          -project Telegram.xcodeproj \
+          -scheme Telegram \
+          -configuration Debug \
+          -sdk iphonesimulator \
+          -destination 'platform=iOS Simulator,name=iPhone 15' \
+          build
+
+    - name: Collect Artifacts
       run: |
-        SOURCE_DIR=/Users/Shared/telegram-ios
-        OUTPUT_PATH="build/artifacts-simulator"
-        rm -rf "$OUTPUT_PATH"
-        mkdir -p "$OUTPUT_PATH"
-        
-        # Ищем simulator builds
-        find bazel-out/ -name "Telegram.app" -path "*/iphoneos-simulator-*" -exec cp -R {} $OUTPUT_PATH/ \;
-        find bazel-out/ -name "*.dSYM" -path "*/iphoneos-simulator-*" -exec cp -R {} $OUTPUT_PATH/ \;
-        
-        # Zip для удобства
-        zip -r "$OUTPUT_PATH/Telegram-iOS-Simulator.zip" $OUTPUT_PATH/* 1>/dev/null || true
+        find ~/Library/Developer/Xcode/DerivedData -name "Telegram.app" -path "*/Debug-iphonesimulator/*" | head -1 | xargs -I {} cp -R {} build/artifacts/
+        zip -r build/artifacts/Telegram-Simulator.zip build/artifacts/Telegram.app
 
     - name: Upload Simulator Build
       uses: actions/upload-artifact@v4
       with:
         name: telegram-ios-simulator-${{ github.run_number }}
-        path: build/artifacts-simulator/
-        retention-days: 30
+        path: build/artifacts/
