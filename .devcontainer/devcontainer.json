@@ -1,0 +1,9 @@
+{
+  "name": "macOS",
+  "image": "mcr.microsoft.com/vscode/devcontainers/universal:2",
+  "platform": "linux/amd64",
+  "features": {
+    "ghcr.io/devcontainers/features/xcode:1": {}
+  },
+  "remoteUser": "vscode"
+}
